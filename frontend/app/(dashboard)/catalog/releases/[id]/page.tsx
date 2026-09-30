@@ -668,7 +668,7 @@ action={
                     {track.track_number}
                   </td>
                   <td className="px-4 py-3">
-  <div className="font-medium">{track.title}</div>
+  <Link href={`/catalog/tracks/${track.id}`} className="font-medium text-[var(--color-primary-text)] hover:underline">{track.title}</Link>
   {track.artists?.length > 0 ? (
     <div className="mt-1 text-xs text-[var(--color-muted)]">
       {track.artists

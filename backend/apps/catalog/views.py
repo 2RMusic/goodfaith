@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.db.models import QuerySet
@@ -7,6 +9,9 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from apps.accounts.models import Role
+from apps.accounts.permissions import Mandatory2FAEnforced
+from apps.royalties.models import Distributor
+from apps.royalties.permissions import CanAccessRoyalties
 
 from .models import Artist, Label, LabelMembership, Release, Track, TrackArtist
 from .permissions import CanManageCatalog
@@ -112,6 +117,50 @@ class TrackViewSet(viewsets.ModelViewSet):
                 return qs.none()
             qs = qs.filter(release__primary_artist=user.artist_profile)
         return qs
+
+    @action(detail=True, methods=["get"], permission_classes=[CanAccessRoyalties, Mandatory2FAEnforced])
+    def royalties(self, request, pk=None):
+        track = self.get_object()
+        rows = track.royalty_line_items.filter(statement__label_id=track.release.label_id).order_by().values(
+            "amount", "isrc", "source_asset_kind", "statement_id", "statement__filename",
+            "statement__period_start", "statement__period_end", "statement__distributor", "statement__currency",
+        )
+        assets, statements = {}, {}
+        total = Decimal("0.0000")
+        line_count = 0
+        currencies = set()
+        # Sum persisted Decimals rather than SQLite's floating-point SQL SUM.
+        for row in rows.iterator():
+            currencies.add(row["statement__currency"])
+            key = (row["source_asset_kind"], row["isrc"])
+            asset = assets.setdefault(key, {
+                "source_asset_kind": key[0], "isrc": key[1], "line_count": 0, "total": Decimal("0.0000"),
+            })
+            statement = statements.setdefault(row["statement_id"], {
+                "id": row["statement_id"], "filename": row["statement__filename"],
+                "period_start": row["statement__period_start"], "period_end": row["statement__period_end"],
+                "distributor": row["statement__distributor"],
+                "distributor_display": dict(Distributor.choices).get(row["statement__distributor"], row["statement__distributor"]),
+                "line_count": 0, "total": Decimal("0.0000"),
+            })
+            for group in (asset, statement):
+                group["line_count"] += 1
+                group["total"] += row["amount"]
+            total += row["amount"]
+            line_count += 1
+        if len(currencies) > 1:
+            raise serializers.ValidationError({"detail": "This track has royalties in multiple currencies; a combined total is not available."})
+        for group in (*assets.values(), *statements.values()):
+            group["total"] = f"{group['total']:.4f}"
+        return Response({
+            "track": TrackSerializer(track).data,
+            "release_title": track.release.title,
+            "primary_artist_name": track.release.primary_artist.name,
+            "currency": next(iter(currencies), None),
+            "total_royalties": f"{total:.4f}", "line_count": line_count,
+            "by_asset": [assets[key] for key in sorted(assets)],
+            "by_statement": [statements[key] for key in sorted(statements)],
+        })
 
     @action(detail=True, methods=["get", "post"])
     def assets(self, request, pk=None):
