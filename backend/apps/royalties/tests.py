@@ -1,5 +1,6 @@
 from decimal import Decimal
 import tempfile
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -67,9 +68,26 @@ class CommercialIdentifierTests(TestCase):
         self.assertEqual(line.source_asset_kind, AssetKind.AUDIO)
 
     def test_unknown_isrc_and_missing_isrc_do_not_match_title(self):
-        for line in self.process(codes=("USXXX2400001", "")).line_items.all():
+        for line in self.process(codes=("QZNFJ2405938", "")).line_items.all():
             self.assertIsNone(line.track_id)
             self.assertEqual(line.source_asset_kind, AssetKind.UNKNOWN)
+
+    def test_null_or_empty_alternate_kind_defaults_to_unknown(self):
+        # Simulate malformed values returned by the lookup without weakening
+        # the model's NOT NULL constraint or writing invalid catalog data.
+        for kind in (None, ""):
+            with self.subTest(kind=kind):
+                self.identifier.asset_kind = kind
+                with patch("apps.royalties.tasks.TrackIdentifier.objects.filter") as lookup:
+                    lookup.return_value.select_related.return_value = [self.identifier]
+                    statement = self.process(codes=(self.track.isrc, self.identifier.value, "QZNFJ2405938"))
+                lines = {line.isrc: line for line in statement.line_items.all()}
+                self.assertEqual(lines[self.track.isrc].source_asset_kind, AssetKind.AUDIO)
+                self.assertEqual(lines[self.identifier.value].track_id, self.track.pk)
+                self.assertEqual(lines[self.identifier.value].source_asset_kind, AssetKind.UNKNOWN)
+                self.assertIsNone(lines["QZNFJ2405938"].track_id)
+                self.assertEqual(lines["QZNFJ2405938"].source_asset_kind, AssetKind.UNKNOWN)
+                self.assertTrue(all(line.source_asset_kind for line in lines.values()))
 
     def test_both_matching_paths_are_scoped_to_label(self):
         other = Label.objects.create(name="Other", slug="other")

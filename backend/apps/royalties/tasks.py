@@ -88,7 +88,7 @@ def process_statement(statement_id: int) -> None:
             artist_name=row.artist_name,
             track_title=row.track_title,
             isrc=row.isrc,
-            source_asset_kind=kind_by_isrc.get(row.isrc, AssetKind.UNKNOWN),
+            source_asset_kind=kind_by_isrc.get(row.isrc) or AssetKind.UNKNOWN,
             upc=row.upc,
             quantity=row.quantity,
             amount=row.amount.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP),
