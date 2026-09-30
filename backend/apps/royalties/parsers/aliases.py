@@ -22,6 +22,7 @@ GENERIC_ALIASES: dict[str, list[str]] = {
     "upc": ["UPC", "UPC/EAN", "Album UPC"],
     "quantity": ["Quantity", "Units", "Units Sold", "Qty Sold", "Streams"],
     "amount": [
+        "USD Revenue",
         "Earnings (USD)",
         "Earnings",
         "Net Earnings",
@@ -160,6 +161,19 @@ DISTRIBUTOR_ALIASES: dict[str, dict[str, list[str]]] = {
         "upc": ["UPC"],
         "quantity": ["Views", "Quantity", "Units"],
         "amount": ["Net Earnings", "Earnings", "Revenue", "Amount"],
+        "currency": ["Currency"],
+    },
+    # Colonize Media — royalty statement export.
+    Distributor.COLONIZE: {
+        "sale_period": ["Sales Date", "Received On"],
+        "store": ["Store"],
+        "country": ["Region"],
+        "artist_name": ["Track Artist", "Artist Name"],
+        "track_title": ["Track Title"],
+        "isrc": ["ISRC"],
+        "upc": ["UPC"],
+        "quantity": ["Units"],
+        "amount": ["USD Revenue"],
         "currency": ["Currency"],
     },
 }

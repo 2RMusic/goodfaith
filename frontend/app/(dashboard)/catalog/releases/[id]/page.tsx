@@ -43,7 +43,9 @@ export default function ReleaseDetailPage() {
     release_date: "",
   });
   const [trackForm, setTrackForm] = useState(EMPTY_TRACK);
-
+  const [durationInput, setDurationInput] = useState("");
+const [primaryArtistId, setPrimaryArtistId] = useState("");
+const [featuredArtistIds, setFeaturedArtistIds] = useState<number[]>([]);
   const canManage = user && canManageCatalog(user.role);
 
   const load = useCallback(async () => {
@@ -117,54 +119,207 @@ export default function ReleaseDetailPage() {
       track_number: String(track.track_number),
       duration_seconds: track.duration_seconds ? String(track.duration_seconds) : "",
     });
+if (track.duration_seconds) {
+  const minutes = Math.floor(track.duration_seconds / 60);
+  const seconds = track.duration_seconds % 60;
+  setDurationInput(`${minutes}:${String(seconds).padStart(2, "0")}`);
+} else {
+  setDurationInput("");
+}
+const primaryCredit = track.artists?.find(
+  (credit) => credit.role === "primary"
+);
+
+setPrimaryArtistId(
+  primaryCredit ? String(primaryCredit.artist) : String(release?.primary_artist ?? "")
+);
+
+setFeaturedArtistIds(
+  track.artists
+    ?.filter((credit) => credit.role === "featured")
+    .map((credit) => credit.artist) ?? []
+);
     setShowAddTrack(false);
   }
 
   function resetTrackForm() {
     setTrackForm(EMPTY_TRACK);
+    setDurationInput("");
     setEditingTrackId(null);
     setShowAddTrack(false);
   }
 
   async function handleSaveTrack(event: React.FormEvent) {
     event.preventDefault();
-    if (!token || !release || !canManage || !trackForm.title.trim()) return;
+
+    if (
+      !token ||
+      !release ||
+      !canManage ||
+      !trackForm.title.trim() ||
+      !primaryArtistId
+    ) {
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
+
     const body: Record<string, string | number | null> = {
       release: release.id,
       title: trackForm.title.trim(),
       isrc: trackForm.isrc.trim() || null,
       iswc: trackForm.iswc.trim() || null,
-      track_number: trackForm.track_number ? Number(trackForm.track_number) : release.tracks.length + 1,
+      track_number: trackForm.track_number
+        ? Number(trackForm.track_number)
+        : release.tracks.length + 1,
     };
-    if (trackForm.duration_seconds.trim()) {
-      body.duration_seconds = Number(trackForm.duration_seconds);
+
+    if (durationInput.trim()) {
+      const match = durationInput.trim().match(/^(\d+):([0-5]\d)$/);
+
+      if (!match) {
+        setError("Duration must use MM:SS format, for example 3:30.");
+        setSubmitting(false);
+        return;
+      }
+
+      body.duration_seconds = Number(match[1]) * 60 + Number(match[2]);
+    } else {
+      body.duration_seconds = null;
     }
 
     try {
+      let savedTrack: Track;
+
       if (editingTrackId) {
-        await apiFetch<Track>(
+        savedTrack = await apiFetch<Track>(
           `/api/catalog/tracks/${editingTrackId}/`,
-          { method: "PATCH", body: JSON.stringify(body) },
+          {
+            method: "PATCH",
+            body: JSON.stringify(body),
+          },
           token,
         );
       } else {
-        await apiFetch<Track>(
+        savedTrack = await apiFetch<Track>(
           "/api/catalog/tracks/",
-          { method: "POST", body: JSON.stringify(body) },
+          {
+            method: "POST",
+            body: JSON.stringify(body),
+          },
           token,
         );
       }
+
+      const desiredCredits = [
+        {
+          artist: Number(primaryArtistId),
+          role: "primary",
+          billing_order: 1,
+        },
+        ...featuredArtistIds.map((artistId, index) => ({
+          artist: artistId,
+          role: "featured",
+          billing_order: index + 2,
+        })),
+      ];
+
+      const existingCredits = editingTrackId
+        ? release.tracks.find((track) => track.id === editingTrackId)?.artists ?? []
+        : [];
+
+      for (const credit of existingCredits) {
+        const shouldKeep = desiredCredits.some(
+          (desired) =>
+            desired.artist === credit.artist &&
+            desired.role === credit.role,
+        );
+
+        if (!shouldKeep) {
+          await apiFetch(
+            `/api/catalog/track-artists/${credit.id}/`,
+            { method: "DELETE" },
+            token,
+          );
+        }
+      }
+
+      for (const desired of desiredCredits) {
+        const existing = existingCredits.find(
+          (credit) => credit.artist === desired.artist,
+        );
+
+        if (existing) {
+          await apiFetch(
+            `/api/catalog/track-artists/${existing.id}/`,
+            {
+              method: "PATCH",
+              body: JSON.stringify({
+                track: savedTrack.id,
+                artist: desired.artist,
+                role: desired.role,
+                billing_order: desired.billing_order,
+              }),
+            },
+            token,
+          );
+        } else {
+          await apiFetch(
+            "/api/catalog/track-artists/",
+            {
+              method: "POST",
+              body: JSON.stringify({
+                track: savedTrack.id,
+                artist: desired.artist,
+                role: desired.role,
+                billing_order: desired.billing_order,
+              }),
+            },
+            token,
+          );
+        }
+      }
+
       resetTrackForm();
+      setPrimaryArtistId("");
+      setFeaturedArtistIds([]);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save track.");
+      setError(
+        err instanceof Error ? err.message : "Failed to save track.",
+      );
     } finally {
       setSubmitting(false);
     }
   }
+async function handleDeleteRelease() {
+  if (!token || !release || !canManage) return;
+
+  const confirmed = window.confirm(
+    `Delete release "${release.title}"?\n\nThis will also delete all tracks inside this release. This action cannot be undone.`
+  );
+
+  if (!confirmed) return;
+
+  setSubmitting(true);
+  setError(null);
+
+  try {
+    await apiFetch(
+      `/api/catalog/releases/${release.id}/`,
+      { method: "DELETE" },
+      token,
+    );
+
+    window.location.href = "/catalog";
+  } catch (err) {
+    setError(
+      err instanceof Error ? err.message : "Failed to delete release."
+    );
+    setSubmitting(false);
+  }
+}
 
   async function handleDeleteTrack(track: Track) {
     if (!token || !canManage) return;
@@ -210,17 +365,28 @@ export default function ReleaseDetailPage() {
       <PageHeader
         title={release.title}
         description={`${release.primary_artist_name} · ${titleCase(release.release_type)} · ${formatDate(release.release_date)}`}
-        action={
-          canManage ? (
-            <button
-              type="button"
-              onClick={() => setShowEditRelease((v) => !v)}
-              className={buttonSecondaryClassName}
-            >
-              {showEditRelease ? "Cancel edit" : "Edit release"}
-            </button>
-          ) : undefined
-        }
+action={
+  canManage ? (
+    <div className="flex gap-2">
+      <button
+        type="button"
+        onClick={() => setShowEditRelease((v) => !v)}
+        className={buttonSecondaryClassName}
+      >
+        {showEditRelease ? "Cancel edit" : "Edit release"}
+      </button>
+
+      <button
+        type="button"
+        onClick={handleDeleteRelease}
+        disabled={submitting}
+        className="rounded-lg border border-red-300 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+      >
+        Delete release
+      </button>
+    </div>
+  ) : undefined
+}
       />
 
       {error ? (
@@ -345,6 +511,73 @@ export default function ReleaseDetailPage() {
           className="mb-6 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-5 space-y-4"
         >
           <h3 className="font-medium">{editingTrackId ? "Edit track" : "New track"}</h3>
+<label className={labelClassName}>
+  Primary artist
+  <select
+    required
+    value={primaryArtistId}
+    onChange={(event) => setPrimaryArtistId(event.target.value)}
+    className={inputClassName}
+  >
+    <option value="">Select artist</option>
+    {artists.map((artist) => (
+      <option key={artist.id} value={artist.id}>
+        {artist.name}
+      </option>
+    ))}
+  </select>
+</label>
+<label className={labelClassName}>
+  Featured artist
+  <select
+    value=""
+    onChange={(event) => {
+      const artistId = Number(event.target.value);
+
+      if (artistId && !featuredArtistIds.includes(artistId)) {
+        setFeaturedArtistIds((current) => [...current, artistId]);
+      }
+    }}
+    className={inputClassName}
+  >
+    <option value="">Add featured artist...</option>
+    {artists
+      .filter(
+        (artist) =>
+          String(artist.id) !== primaryArtistId &&
+          !featuredArtistIds.includes(artist.id)
+      )
+      .map((artist) => (
+        <option key={artist.id} value={artist.id}>
+          {artist.name}
+        </option>
+      ))}
+  </select>
+
+  {featuredArtistIds.map((artistId) => {
+    const artist = artists.find((item) => item.id === artistId);
+
+    return (
+      <div
+        key={artistId}
+        className="mt-2 flex items-center justify-between rounded-lg border border-[var(--color-border)] px-3 py-2"
+      >
+        <span>{artist?.name ?? `Artist #${artistId}`}</span>
+        <button
+          type="button"
+          onClick={() =>
+            setFeaturedArtistIds((current) =>
+              current.filter((id) => id !== artistId)
+            )
+          }
+          className="text-xs text-red-600 hover:underline"
+        >
+          Remove
+        </button>
+      </div>
+    );
+  })}
+</label>
           <div className="grid gap-4 sm:grid-cols-2">
             <label className={labelClassName}>
               Title
@@ -389,18 +622,16 @@ export default function ReleaseDetailPage() {
               />
             </label>
             <label className={labelClassName}>
-              Duration (seconds)
-              <input
-                type="number"
-                min={1}
-                value={trackForm.duration_seconds}
-                onChange={(event) =>
-                  setTrackForm((c) => ({ ...c, duration_seconds: event.target.value }))
-                }
-                className={inputClassName}
-                placeholder="210"
-              />
-            </label>
+  Duration (MM:SS)
+  <input
+    type="text"
+    value={durationInput}
+    onChange={(event) => setDurationInput(event.target.value)}
+    className={inputClassName}
+    placeholder="3:30"
+    inputMode="numeric"
+  />
+</label>
           </div>
           <div className="flex gap-2">
             <button type="submit" disabled={submitting} className={buttonPrimaryClassName}>
@@ -436,7 +667,20 @@ export default function ReleaseDetailPage() {
                   <td className="px-4 py-3 tabular-nums text-[var(--color-muted)]">
                     {track.track_number}
                   </td>
-                  <td className="px-4 py-3 font-medium">{track.title}</td>
+                  <td className="px-4 py-3">
+  <div className="font-medium">{track.title}</div>
+  {track.artists?.length > 0 ? (
+    <div className="mt-1 text-xs text-[var(--color-muted)]">
+      {track.artists
+        .map((credit) =>
+          credit.role === "featured"
+            ? `feat. ${credit.artist_name}`
+            : credit.artist_name
+        )
+        .join(" · ")}
+    </div>
+  ) : null}
+</td>
                   <td className="px-4 py-3 font-mono text-xs">{track.isrc ?? "—"}</td>
                   <td className="px-4 py-3 font-mono text-xs">{track.iswc ?? "—"}</td>
                   <td className="px-4 py-3 text-right tabular-nums">

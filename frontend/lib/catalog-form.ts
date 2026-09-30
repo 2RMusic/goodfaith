@@ -13,7 +13,7 @@ export const inputClassName =
 export const labelClassName = "block text-sm font-medium";
 
 export const buttonPrimaryClassName =
-  "rounded-md bg-[var(--color-primary)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50";
+  "rounded-md bg-[var(--color-primary-fill)] px-4 py-2 text-sm font-medium text-white disabled:opacity-50";
 
 export const buttonSecondaryClassName =
   "rounded-md border border-[var(--color-border)] px-4 py-2 text-sm font-medium disabled:opacity-50";

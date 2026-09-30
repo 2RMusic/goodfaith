@@ -18,6 +18,8 @@ class Distributor(models.TextChoices):
     FUGA = "fuga", "FUGA"
     VYDIA = "vydia", "Vydia"
     THE_ORCHARD = "the_orchard", "The Orchard"
+    COLONIZE = "colonize", "Colonize Media"
+    LUJO = "lujo", "Lujo Network"
     OTHER = "other", "Other"
 
 

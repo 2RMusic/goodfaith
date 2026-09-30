@@ -23,6 +23,7 @@ class RegistrationStatus(models.TextChoices):
 class ContributorRole(models.TextChoices):
     WRITER = "writer", "Writer"
     COMPOSER = "composer", "Composer"
+    WRITER_COMPOSER = "writer_composer", "Writer/Composer"
     PUBLISHER = "publisher", "Publisher"
     ADMIN = "admin", "Admin publisher"
 

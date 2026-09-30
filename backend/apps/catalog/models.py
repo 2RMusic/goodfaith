@@ -123,3 +123,37 @@ class Track(TimeStampedModel):
 
     def __str__(self) -> str:
         return self.title
+class TrackArtistRole(models.TextChoices):
+    PRIMARY = "primary", "Primary Artist"
+    FEATURED = "featured", "Featured Artist"
+
+
+class TrackArtist(TimeStampedModel):
+    track = models.ForeignKey(
+        Track,
+        on_delete=models.CASCADE,
+        related_name="artists",
+    )
+    artist = models.ForeignKey(
+        Artist,
+        on_delete=models.PROTECT,
+        related_name="track_credits",
+    )
+    role = models.CharField(
+        max_length=16,
+        choices=TrackArtistRole.choices,
+        default=TrackArtistRole.PRIMARY,
+    )
+    billing_order = models.PositiveSmallIntegerField(default=1)
+
+    class Meta:
+        ordering = ("billing_order",)
+        constraints = [
+            models.UniqueConstraint(
+                fields=["track", "artist"],
+                name="unique_artist_per_track",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.track.title} — {self.artist.name} ({self.get_role_display()})"

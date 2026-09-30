@@ -7,10 +7,15 @@ from rest_framework.response import Response
 
 from apps.accounts.models import Role
 
-from .models import Artist, Label, LabelMembership, Release, Track
+from .models import Artist, Label, LabelMembership, Release, Track, TrackArtist
 from .permissions import CanManageCatalog
-from .serializers import ArtistSerializer, LabelSerializer, ReleaseSerializer, TrackSerializer
-
+from .serializers import (
+    ArtistSerializer,
+    LabelSerializer,
+    ReleaseSerializer,
+    TrackSerializer,
+    TrackArtistSerializer,
+)
 User = get_user_model()
 
 
@@ -101,3 +106,27 @@ class TrackViewSet(viewsets.ModelViewSet):
         if user.role == Role.ARTIST and hasattr(user, "artist_profile"):
             qs = qs.filter(release__primary_artist=user.artist_profile)
         return qs
+class TrackArtistViewSet(viewsets.ModelViewSet):
+    serializer_class = TrackArtistSerializer
+    permission_classes = [CanManageCatalog]
+
+    def get_queryset(self) -> QuerySet[TrackArtist]:
+        return (
+            TrackArtist.objects
+            .filter(track__release__label_id__in=_user_label_ids(self.request.user))
+            .select_related("track", "artist")
+        )
+
+    def perform_create(self, serializer):
+        track = serializer.validated_data["track"]
+        artist = serializer.validated_data["artist"]
+
+        if track.release.label_id not in _user_label_ids(self.request.user):
+            raise serializers.ValidationError({"track": "Track not accessible."})
+
+        if artist.label_id != track.release.label_id:
+            raise serializers.ValidationError(
+                {"artist": "Artist must belong to the same label as the track."}
+            )
+
+        serializer.save()

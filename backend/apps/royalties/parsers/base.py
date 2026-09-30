@@ -53,8 +53,52 @@ class ParsedRow:
 def load_dataframe(fileobj: IO[bytes], filename: str) -> pd.DataFrame:
     """Read a statement file into a DataFrame regardless of CSV/TSV/XLSX format."""
     lower = filename.lower()
+
     if lower.endswith((".xlsx", ".xls")):
+        # Read without assuming where the real header is.
+        preview = pd.read_excel(fileobj, header=None, dtype=str)
+
+        # Look through the first rows for a likely royalty-statement header.
+        # We require an identity field (ISRC or track title) plus a revenue field.
+        header_row = None
+
+        for idx in range(min(20, len(preview))):
+            values = {
+                str(value).strip().lower()
+                for value in preview.iloc[idx].tolist()
+                if pd.notna(value)
+            }
+
+            has_identity = (
+                "isrc" in values
+                or "track title" in values
+                or "track_title" in values
+            )
+
+            has_amount = any(
+                value in values
+                for value in (
+                    "usd revenue",
+                    "net revenue",
+                    "revenue",
+                    "earnings",
+                    "amount",
+                )
+            )
+
+            if has_identity and has_amount:
+                header_row = idx
+                break
+
+        if header_row is not None:
+            df = preview.iloc[header_row + 1:].copy()
+            df.columns = preview.iloc[header_row].tolist()
+            return df.reset_index(drop=True)
+
+        # Fallback for ordinary Excel files whose header is already on row 1.
+        fileobj.seek(0)
         return pd.read_excel(fileobj, dtype=str)
+
     # The python engine's delimiter sniffer needs text, not bytes.
     raw = fileobj.read()
     try:

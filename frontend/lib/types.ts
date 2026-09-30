@@ -27,6 +27,17 @@ export type Artist = {
   username: string;
 };
 
+export type TrackArtistRole = "primary" | "featured";
+
+export type TrackArtist = {
+  id: number;
+  track: number;
+  artist: number;
+  artist_name: string;
+  role: TrackArtistRole;
+  billing_order: number;
+};
+
 export type Track = {
   id: number;
   release: number;
@@ -35,6 +46,7 @@ export type Track = {
   iswc: string | null;
   track_number: number;
   duration_seconds: number | null;
+  artists: TrackArtist[];
 };
 
 export type Release = {
@@ -49,7 +61,6 @@ export type Release = {
   tracks: Track[];
   track_count: number;
 };
-
 export type ReleaseType = "album" | "ep" | "single" | "compilation";
 
 export const RELEASE_TYPES: { value: ReleaseType; label: string }[] = [
@@ -259,7 +270,7 @@ export type ProSociety = "ascap" | "bmi" | "sesac" | "socan" | "other" | "";
 
 export type RegistrationStatus = "draft" | "ready" | "submitted" | "registered";
 
-export type ContributorRole = "writer" | "composer" | "publisher" | "admin";
+export type ContributorRole = "writer" | "composer" | "writer_composer" | "publisher" | "admin";
 
 export type WorkShare = {
   id?: number;
@@ -328,6 +339,7 @@ export const REGISTRATION_STATUSES: { value: RegistrationStatus; label: string }
 export const CONTRIBUTOR_ROLES: { value: ContributorRole; label: string }[] = [
   { value: "writer", label: "Writer" },
   { value: "composer", label: "Composer" },
+  { value: "writer_composer", label: "Writer/Composer" },
   { value: "publisher", label: "Publisher" },
   { value: "admin", label: "Admin publisher" },
 ];
@@ -405,6 +417,8 @@ export const DISTRIBUTORS = [
   { value: "fuga", label: "FUGA" },
   { value: "vydia", label: "Vydia" },
   { value: "the_orchard", label: "The Orchard" },
+  { value: "colonize", label: "Colonize Media" },
+  { value: "lujo", label: "Lujo Network" },
   { value: "other", label: "Other" },
 ] as const;
 

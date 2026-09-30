@@ -268,26 +268,67 @@ export default function CatalogPage() {
               </tr>
             </thead>
             <tbody>
-              {releases.map((release) => (
-                <tr
-                  key={release.id}
-                  className="border-t border-[var(--color-border)] hover:bg-[var(--color-surface)]"
-                >
-                  <td className="px-4 py-3">
-                    <Link
-                      href={`/catalog/releases/${release.id}`}
-                      className="font-medium text-[var(--color-primary-text)] hover:underline"
-                    >
-                      {release.title}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3">{release.primary_artist_name}</td>
-                  <td className="px-4 py-3 capitalize">{titleCase(release.release_type)}</td>
-                  <td className="px-4 py-3 font-mono text-xs">{release.upc ?? "—"}</td>
-                  <td className="px-4 py-3">{formatDate(release.release_date)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums">{release.track_count}</td>
-                </tr>
-              ))}
+{releases.map((release) => (
+  <tr
+    key={release.id}
+    className="border-t border-[var(--color-border)] hover:bg-[var(--color-surface)]"
+  >
+    <td className="px-4 py-3">
+      <Link
+        href={`/catalog/releases/${release.id}`}
+        className="font-medium text-[var(--color-primary-text)] hover:underline"
+      >
+        {release.title}
+      </Link>
+
+      {release.tracks?.length > 0 ? (
+        <div className="mt-2 space-y-1">
+          {release.tracks.map((track) => (
+            <div
+              key={track.id}
+              className="text-xs text-[var(--color-muted)]"
+            >
+              {String(track.track_number).padStart(2, "0")}. {track.title}
+
+              {track.artists?.length > 0 ? (
+                <>
+                  {" — "}
+                  {track.artists
+                    .map((credit) =>
+                      credit.role === "featured"
+                        ? `feat. ${credit.artist_name}`
+                        : credit.artist_name
+                    )
+                    .join(" · ")}
+                </>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </td>
+
+    <td className="px-4 py-3">
+      {release.primary_artist_name}
+    </td>
+
+    <td className="px-4 py-3 capitalize">
+      {titleCase(release.release_type)}
+    </td>
+
+    <td className="px-4 py-3 font-mono text-xs">
+      {release.upc ?? "—"}
+    </td>
+
+    <td className="px-4 py-3">
+      {formatDate(release.release_date)}
+    </td>
+
+    <td className="px-4 py-3 text-right tabular-nums">
+      {release.track_count}
+    </td>
+  </tr>
+))}
             </tbody>
           </table>
         </div>

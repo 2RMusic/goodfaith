@@ -34,7 +34,6 @@ export default function ArtistsPage() {
   });
 
   const canManage = user && canManageCatalog(user.role);
-
   useEffect(() => {
     if (!token) return;
     Promise.all([

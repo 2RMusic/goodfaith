@@ -94,14 +94,52 @@ class RoyaltyStatementViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"])
     def line_items(self, request, pk=None):
         statement = self.get_object()
-        items = statement.line_items.all()
-        return Response(RoyaltyLineItemSerializer(items, many=True).data)
+
+        try:
+            page = max(1, int(request.query_params.get("page", 1)))
+        except (TypeError, ValueError):
+            page = 1
+
+        try:
+            page_size = int(request.query_params.get("page_size", 50))
+        except (TypeError, ValueError):
+            page_size = 50
+
+        allowed_page_sizes = (50, 100, 250, 500)
+        if page_size not in allowed_page_sizes:
+            page_size = 50
+
+        items = statement.line_items.all().order_by("id")
+        total = items.count()
+
+        total_pages = max(1, (total + page_size - 1) // page_size)
+
+        if page > total_pages:
+            page = total_pages
+
+        start = (page - 1) * page_size
+        end = start + page_size
+        page_items = items[start:end]
+
+        return Response(
+            {
+                "results": RoyaltyLineItemSerializer(
+                    page_items,
+                    many=True,
+                ).data,
+                "count": total,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+            }
+        )
 
     @action(detail=True, methods=["post"])
     def reprocess(self, request, pk=None):
         statement = self.get_object()
         statement.status = StatementStatus.PENDING
         statement.save(update_fields=["status", "updated_at"])
+
         log_audit_event(
             label_id=statement.label_id,
             action=AuditAction.STATEMENT_REPROCESSED,
@@ -110,6 +148,7 @@ class RoyaltyStatementViewSet(viewsets.ModelViewSet):
             summary=f"Reprocess requested for {statement.filename}",
             actor=request.user,
         )
+
         process_statement.delay(statement.pk)
         return Response(RoyaltyStatementSerializer(statement).data)
 
@@ -131,11 +170,13 @@ class RoyaltyRunViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         run = serializer.save()
+
         try:
             consolidate_run(run)
         except ConsolidationError as exc:
             run.delete()
             raise serializers.ValidationError({"detail": str(exc)}) from exc
+
         log_audit_event(
             label_id=run.label_id,
             action=AuditAction.RUN_CREATED,
@@ -143,9 +184,15 @@ class RoyaltyRunViewSet(viewsets.ModelViewSet):
             resource_id=run.pk,
             summary=f"Created royalty run “{run.name}”",
             actor=request.user,
-            metadata={"statement_ids": list(run.statements.values_list("id", flat=True))},
+            metadata={
+                "statement_ids": list(
+                    run.statements.values_list("id", flat=True)
+                )
+            },
         )
+
         _log_run_consolidated(run, actor=request.user)
+
         output = RoyaltyRunSerializer(run)
         headers = self.get_success_headers(output.data)
         return Response(output.data, status=201, headers=headers)
@@ -154,24 +201,39 @@ class RoyaltyRunViewSet(viewsets.ModelViewSet):
     def payouts(self, request, pk=None):
         run = self.get_object()
         payouts = run.payouts.select_related("track", "artist")
-        return Response(RoyaltyRunPayoutSerializer(payouts, many=True).data)
+        return Response(
+            RoyaltyRunPayoutSerializer(payouts, many=True).data
+        )
 
     @action(detail=True, methods=["get"])
     def pdf(self, request, pk=None):
         run = self.get_object()
         content = royalty_run_pdf(run)
-        response = HttpResponse(content, content_type="application/pdf")
-        response["Content-Disposition"] = f'attachment; filename="{royalty_run_pdf_filename(run)}"'
+
+        response = HttpResponse(
+            content,
+            content_type="application/pdf",
+        )
+        response["Content-Disposition"] = (
+            f'attachment; filename="{royalty_run_pdf_filename(run)}"'
+        )
         return response
 
     @action(detail=True, methods=["post"])
     def consolidate(self, request, pk=None):
         run = self.get_object()
+
         try:
             consolidate_run(run)
         except ConsolidationError as exc:
             run.consolidation_error = str(exc)
-            run.save(update_fields=["consolidation_error", "updated_at"])
+            run.save(
+                update_fields=[
+                    "consolidation_error",
+                    "updated_at",
+                ]
+            )
+
             log_audit_event(
                 label_id=run.label_id,
                 action=AuditAction.RUN_CONSOLIDATION_FAILED,
@@ -181,11 +243,25 @@ class RoyaltyRunViewSet(viewsets.ModelViewSet):
                 actor=request.user,
                 metadata={"error": str(exc)},
             )
-            return Response({"detail": str(exc)}, status=400)
+
+            return Response(
+                {"detail": str(exc)},
+                status=400,
+            )
+
         run.consolidation_error = ""
-        run.save(update_fields=["consolidation_error", "updated_at"])
+        run.save(
+            update_fields=[
+                "consolidation_error",
+                "updated_at",
+            ]
+        )
+
         _log_run_consolidated(run, actor=request.user)
-        return Response(RoyaltyRunSerializer(run).data)
+
+        return Response(
+            RoyaltyRunSerializer(run).data
+        )
 
 
 class MyEarningsView(ListAPIView):
@@ -196,14 +272,23 @@ class MyEarningsView(ListAPIView):
 
     def get_queryset(self) -> QuerySet[RoyaltyRunPayout]:
         user = self.request.user
-        if user.role != Role.ARTIST or not hasattr(user, "artist_profile"):
+
+        if user.role != Role.ARTIST or not hasattr(
+            user,
+            "artist_profile",
+        ):
             return RoyaltyRunPayout.objects.none()
+
         label_ids = _user_label_ids(user)
+
         return (
             RoyaltyRunPayout.objects.filter(
                 artist=user.artist_profile,
                 run__label_id__in=label_ids,
             )
             .select_related("run", "track")
-            .order_by("-run__created_at", "-amount")
+            .order_by(
+                "-run__created_at",
+                "-amount",
+            )
         )
