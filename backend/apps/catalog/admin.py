@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Artist, Label, LabelMembership, Release, Track
+from .models import Artist, Label, LabelMembership, Release, Track, TrackIdentifier
 
 
 class TrackInline(admin.TabularInline):
@@ -38,3 +38,10 @@ class ReleaseAdmin(admin.ModelAdmin):
 class TrackAdmin(admin.ModelAdmin):
     list_display = ("title", "release", "track_number", "isrc", "duration_seconds")
     list_filter = ("release__label",)
+
+
+@admin.register(TrackIdentifier)
+class TrackIdentifierAdmin(admin.ModelAdmin):
+    list_display = ("value", "identifier_type", "asset_kind", "track", "label")
+    list_filter = ("label", "identifier_type", "asset_kind")
+    search_fields = ("value", "track__title")

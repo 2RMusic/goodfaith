@@ -1,4 +1,6 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.core.validators import RegexValidator
 from django.db import models
 
 from apps.core.models import TimeStampedModel
@@ -123,6 +125,54 @@ class Track(TimeStampedModel):
 
     def __str__(self) -> str:
         return self.title
+
+
+class AssetKind(models.TextChoices):
+    AUDIO = "audio", "Audio"
+    MUSIC_VIDEO = "music_video", "Music video"
+    OTHER = "other", "Other"
+    UNKNOWN = "unknown", "Unknown"
+
+
+class TrackIdentifier(TimeStampedModel):
+    """Additional commercial identifier, scoped to a label's catalog."""
+
+    class IdentifierType(models.TextChoices):
+        ISRC = "isrc", "ISRC"
+
+    track = models.ForeignKey(Track, on_delete=models.CASCADE, related_name="identifiers")
+    label = models.ForeignKey(Label, on_delete=models.CASCADE, related_name="track_identifiers")
+    identifier_type = models.CharField(
+        max_length=16, choices=IdentifierType.choices, default=IdentifierType.ISRC,
+    )
+    value = models.CharField(
+        max_length=12,
+        validators=[RegexValidator(r"^[A-Z]{2}[A-Z0-9]{3}[0-9]{7}$", "Enter a valid ISRC.")],
+    )
+    asset_kind = models.CharField(max_length=16, choices=AssetKind.choices, default=AssetKind.UNKNOWN)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["label", "identifier_type", "value"],
+                name="unique_track_identifier_per_label",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.track_id and self.label_id and self.track.release.label_id != self.label_id:
+            raise ValidationError({"label": "Must belong to the track's label."})
+
+    def save(self, *args, **kwargs):
+        self.value = self.value.strip().upper()
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.value} ({self.asset_kind})"
+
+
 class TrackArtistRole(models.TextChoices):
     PRIMARY = "primary", "Primary Artist"
     FEATURED = "featured", "Featured Artist"

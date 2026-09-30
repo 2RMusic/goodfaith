@@ -1,9 +1,9 @@
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from celery import shared_task
 from django.db import transaction
 
-from apps.catalog.models import Track
+from apps.catalog.models import AssetKind, Track, TrackIdentifier
 
 from apps.audit.models import AuditAction
 from apps.audit.services import log_audit_event
@@ -65,6 +65,18 @@ def process_statement(statement_id: int) -> None:
             isrc__in=isrcs, release__label_id=statement.label_id
         )
     }
+    kind_by_isrc = {isrc: AssetKind.AUDIO for isrc in track_by_isrc}
+    # Additional identifiers never override a principal ISRC. Check both label
+    # paths so a stale identifier cannot cross tenants after a catalog move.
+    identifiers = TrackIdentifier.objects.filter(
+        label_id=statement.label_id,
+        track__release__label_id=statement.label_id,
+        identifier_type=TrackIdentifier.IdentifierType.ISRC,
+        value__in=isrcs - track_by_isrc.keys(),
+    ).select_related("track")
+    for identifier in identifiers:
+        track_by_isrc[identifier.value] = identifier.track
+        kind_by_isrc[identifier.value] = identifier.asset_kind
 
     line_items = [
         RoyaltyLineItem(
@@ -76,19 +88,23 @@ def process_statement(statement_id: int) -> None:
             artist_name=row.artist_name,
             track_title=row.track_title,
             isrc=row.isrc,
+            source_asset_kind=kind_by_isrc.get(row.isrc, AssetKind.UNKNOWN),
             upc=row.upc,
             quantity=row.quantity,
-            amount=row.amount,
+            amount=row.amount.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP),
             raw_data=row.raw,
         )
         for row in rows
     ]
 
-    total_amount = sum((row.amount for row in rows), Decimal("0"))
-
     with transaction.atomic():
         RoyaltyLineItem.objects.filter(statement=statement).delete()
         RoyaltyLineItem.objects.bulk_create(line_items, batch_size=1000)
+        # Sum persisted Decimals, avoiding SQLite's floating-point SUM.
+        total_amount = sum(
+            statement.line_items.order_by().values_list("amount", flat=True).iterator(),
+            Decimal("0.0000"),
+        )
         statement.row_count = len(line_items)
         statement.total_amount = total_amount
         statement.status = StatementStatus.PROCESSED

@@ -38,6 +38,12 @@ export type TrackArtist = {
   billing_order: number;
 };
 
+export type TrackAsset = {
+  id: number;
+  isrc: string;
+  asset_kind: "audio" | "music_video" | "other" | "unknown";
+};
+
 export type Track = {
   id: number;
   release: number;
@@ -47,6 +53,7 @@ export type Track = {
   track_number: number;
   duration_seconds: number | null;
   artists: TrackArtist[];
+  assets: TrackAsset[];
 };
 
 export type Release = {

@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.conf import settings
 from django.db import models
 
-from apps.catalog.models import Label, Track
+from apps.catalog.models import AssetKind, Label, Track
 from apps.core.models import TimeStampedModel
 
 
@@ -89,6 +89,10 @@ class RoyaltyLineItem(TimeStampedModel):
     artist_name = models.CharField(max_length=255, blank=True, help_text="Artist name as reported by the distributor.")
     track_title = models.CharField(max_length=512, blank=True, help_text="Track title as reported by the distributor.")
     isrc = models.CharField(max_length=12, blank=True)
+    source_asset_kind = models.CharField(
+        max_length=16, choices=AssetKind.choices, default=AssetKind.UNKNOWN,
+        help_text="Asset classification captured when this line was imported.",
+    )
     upc = models.CharField(max_length=13, blank=True)
     quantity = models.PositiveIntegerField(default=0, help_text="Units/streams for this row.")
     amount = models.DecimalField(max_digits=14, decimal_places=4, default=Decimal("0"))

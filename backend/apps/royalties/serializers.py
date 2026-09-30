@@ -63,6 +63,7 @@ class RoyaltyLineItemSerializer(serializers.ModelSerializer):
             "artist_name",
             "track_title",
             "isrc",
+            "source_asset_kind",
             "upc",
             "quantity",
             "amount",

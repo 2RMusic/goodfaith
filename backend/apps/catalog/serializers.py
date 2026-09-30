@@ -1,7 +1,11 @@
+import re
+
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
 from django.utils.text import slugify
 from rest_framework import serializers
 
-from .models import Artist, Label, Release, Track, TrackArtist
+from .models import Artist, AssetKind, Label, Release, Track, TrackArtist, TrackIdentifier
 
 
 def _user_label_ids(context: dict) -> set[int]:
@@ -103,8 +107,52 @@ class TrackArtistSerializer(serializers.ModelSerializer):
         read_only_fields = ("id", "artist_name")
 
 
+class TrackAssetSerializer(serializers.ModelSerializer):
+    isrc = serializers.CharField(source="value", max_length=12)
+    asset_kind = serializers.ChoiceField(choices=AssetKind.choices)
+
+    class Meta:
+        model = TrackIdentifier
+        fields = ("id", "isrc", "asset_kind")
+        read_only_fields = ("id",)
+
+    def validate_isrc(self, value):
+        value = value.strip().upper()
+        if not re.fullmatch(r"[A-Z]{2}[A-Z0-9]{3}[0-9]{7}", value):
+            raise serializers.ValidationError("Enter a valid 12-character ISRC.")
+        return value
+
+    def validate(self, attrs):
+        track = self.context["track"]
+        value = attrs.get("value", getattr(self.instance, "value", ""))
+        duplicates = TrackIdentifier.objects.filter(
+            label_id=track.release.label_id, identifier_type="isrc", value=value,
+        )
+        if self.instance:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if duplicates.exists() or Track.objects.filter(
+            release__label_id=track.release.label_id, isrc__iexact=value,
+        ).exists():
+            raise serializers.ValidationError({"isrc": "This ISRC already belongs to an asset in this label."})
+        return attrs
+
+    def save(self, **kwargs):
+        track = self.context["track"]
+        try:
+            with transaction.atomic():
+                return super().save(track=track, label=track.release.label, identifier_type="isrc")
+        except DjangoValidationError as exc:
+            errors = getattr(exc, "message_dict", {"detail": exc.messages})
+            if "value" in errors:
+                errors["isrc"] = errors.pop("value")
+            raise serializers.ValidationError(errors) from exc
+        except IntegrityError as exc:
+            raise serializers.ValidationError({"isrc": "This ISRC already belongs to an asset in this label."}) from exc
+
+
 class TrackSerializer(serializers.ModelSerializer):
     artists = TrackArtistSerializer(many=True, read_only=True)
+    assets = TrackAssetSerializer(source="identifiers", many=True, read_only=True)
 
     class Meta:
         model = Track
@@ -117,6 +165,7 @@ class TrackSerializer(serializers.ModelSerializer):
             "track_number",
             "duration_seconds",
             "artists",
+            "assets",
             "created_at",
             "updated_at",
         )

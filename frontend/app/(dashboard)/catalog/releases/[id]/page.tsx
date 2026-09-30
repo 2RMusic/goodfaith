@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
 import { PageHeader } from "@/components/PageHeader";
+import { TrackAssets } from "@/components/TrackAssets";
 import { apiFetch } from "@/lib/api";
 import { canManageCatalog, useAuth } from "@/lib/auth";
 import {
@@ -655,7 +656,6 @@ action={
               <tr>
                 <th className="px-4 py-3 font-medium w-12">#</th>
                 <th className="px-4 py-3 font-medium">Title</th>
-                <th className="px-4 py-3 font-medium">ISRC</th>
                 <th className="px-4 py-3 font-medium">ISWC</th>
                 <th className="px-4 py-3 font-medium text-right">Duration</th>
                 {canManage ? <th className="px-4 py-3 font-medium text-right">Actions</th> : null}
@@ -680,8 +680,16 @@ action={
         .join(" · ")}
     </div>
   ) : null}
+                  <TrackAssets
+                    track={track}
+                    token={token}
+                    canManage={Boolean(canManage)}
+                    onAssetsChange={(assets) => setRelease((current) => current ? {
+                      ...current,
+                      tracks: current.tracks.map((item) => item.id === track.id ? { ...item, assets } : item),
+                    } : current)}
+                  />
 </td>
-                  <td className="px-4 py-3 font-mono text-xs">{track.isrc ?? "—"}</td>
                   <td className="px-4 py-3 font-mono text-xs">{track.iswc ?? "—"}</td>
                   <td className="px-4 py-3 text-right tabular-nums">
                     {formatDuration(track.duration_seconds)}
